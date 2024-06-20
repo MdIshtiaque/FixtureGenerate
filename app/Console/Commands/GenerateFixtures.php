@@ -7,59 +7,72 @@ use Illuminate\Console\Command;
 class GenerateFixtures extends Command
 {
     protected $signature = 'fixtures:generate';
-    protected $description = 'Generate the fixtures for the league';
-
-    public function __construct()
-    {
-        parent::__construct();
-    }
+    protected $description = 'Generate round-robin fixtures with specific constraints';
 
     public function handle()
     {
-        $fixtures = $this->generateFixtures();
-        $this->info(json_encode($fixtures, JSON_PRETTY_PRINT));
+        $numTeams = 13;
+        $numDays = 5;
+        $timeSlots = ['09:20', '10:20', '11:20', '12:20', '13:20', '14:20', '15:20', '16:20'];
+        $numCourts = 2;
+
+        $fixtures = $this->generateFixtures($numTeams, $numDays, $timeSlots, $numCourts);
+
+        echo json_encode($fixtures, JSON_PRETTY_PRINT);
     }
 
-    public function generateFixtures()
+    private function generateFixtures($numTeams, $numDays, $timeSlots, $numCourts)
     {
-        $teams = range(1, 13);
-        $numDays = 5;
         $fixtures = [];
+        $totalGamesPerTeam = array_fill(1, $numTeams, 0);
+        $gamesPerDayPerTeam = array_fill(1, $numTeams, array_fill(1, $numDays, 0));
 
-        // Define structured time slots
-        $courtSchedule = [
-            1 => ['09:20', '12:20', '15:20'],  // Court 1 schedule
-            2 => ['10:20', '13:20', '16:20']   // Court 2 schedule
-        ];
+        // Initialize round-robin matches
+        $roundRobin = [];
+        for ($i = 1; $i <= $numTeams; $i++) {
+            for ($j = $i + 1; $j <= $numTeams; $j++) {
+                $roundRobin[] = [$i, $j];
+            }
+        }
 
-        // Games structure for the first 4 days and a separate structure for the last day
-        $gameStructure = [
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-            [2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 1, 13, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
-        ];
+        shuffle($roundRobin);
 
-        // Generate fixtures for each day
-        for ($day = 0; $day < $numDays; $day++) {
-            $fixtures[$day] = [];
-            $dayMod = $day % 2;  // Alternate between two structures
-            $maxGames = ($day == 4) ? 14 : 16;  // Fewer games on the last day
+        $timeSlotIndex = 0;
+        $day = 1;
+        $court = 1;
 
-            for ($game = 0; $game < $maxGames; $game++) {
-                $team1 = $gameStructure[$dayMod][$game * 2 % 26];  // Cycle through the structure
-                $team2 = $gameStructure[$dayMod][$game * 2 % 26 + 1];
-                $court = ($game % 2) + 1;
-                $timeSlotIndex = intval($game / 2) % count($courtSchedule[$court]);
+        foreach ($roundRobin as $match) {
+            list($team1, $team2) = $match;
 
-                $fixtures[$day][] = [
-                    'team1' => $team1,
-                    'team2' => $team2,
-                    'court' => $court,
-                    'time' => $courtSchedule[$court][$timeSlotIndex]
-                ];
+            // Ensure each team has at least 2 games per day and exactly 3 games on 2 dates
+            while (
+                $gamesPerDayPerTeam[$team1][$day] >= 2 ||
+                $gamesPerDayPerTeam[$team2][$day] >= 2 ||
+                $totalGamesPerTeam[$team1] >= 6 ||
+                $totalGamesPerTeam[$team2] >= 6
+            ) {
+                $day++;
+                if ($day > $numDays) {
+                    $day = 1;
+                    $court++;
+                    if ($court > $numCourts) {
+                        $court = 1;
+                    }
+                }
             }
 
-            // Rotate teams for the next day to change the team matchups
-            array_push($teams, array_shift($teams));
+            $fixtures[$day][] = [
+                'team1' => $team1,
+                'team2' => $team2,
+                'court' => $court,
+                'time' => $timeSlots[$timeSlotIndex % count($timeSlots)]
+            ];
+
+            $gamesPerDayPerTeam[$team1][$day]++;
+            $gamesPerDayPerTeam[$team2][$day]++;
+            $totalGamesPerTeam[$team1]++;
+            $totalGamesPerTeam[$team2]++;
+            $timeSlotIndex++;
         }
 
         return $fixtures;
