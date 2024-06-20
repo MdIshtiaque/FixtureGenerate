@@ -23,125 +23,45 @@ class GenerateFixtures extends Command
     public function generateFixtures()
     {
         $teams = range(1, 13);
-        $dates = 5;
-        $gamesPerDate = [16, 16, 16, 16, 14]; // Total games (both courts) per date
-        $courts = 2;
-        $timeSlots = [
-            '09:20', '10:20', '11:20', '12:20', '13:20', '14:20', '15:20', '16:20',
+        $numDays = 5;
+        $fixtures = [];
+
+        // Define structured time slots
+        $courtSchedule = [
+            1 => ['09:20', '12:20', '15:20'],  // Court 1 schedule
+            2 => ['10:20', '13:20', '16:20']   // Court 2 schedule
         ];
 
-        $fixtures = [];
-        $teamGamesPerDate = array_fill(1, 13, array_fill(0, $dates, 0));
-        $matchups = [];
+        // Games structure for the first 4 days and a separate structure for the last day
+        $gameStructure = [
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+            [2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 1, 13, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12]
+        ];
 
-        // Generate a round-robin schedule
-        for ($i = 0; $i < count($teams); $i++) {
-            for ($j = $i + 1; $j < count($teams); $j++) {
-                $matchups[] = [$teams[$i], $teams[$j]];
+        // Generate fixtures for each day
+        for ($day = 0; $day < $numDays; $day++) {
+            $fixtures[$day] = [];
+            $dayMod = $day % 2;  // Alternate between two structures
+            $maxGames = ($day == 4) ? 14 : 16;  // Fewer games on the last day
+
+            for ($game = 0; $game < $maxGames; $game++) {
+                $team1 = $gameStructure[$dayMod][$game * 2 % 26];  // Cycle through the structure
+                $team2 = $gameStructure[$dayMod][$game * 2 % 26 + 1];
+                $court = ($game % 2) + 1;
+                $timeSlotIndex = intval($game / 2) % count($courtSchedule[$court]);
+
+                $fixtures[$day][] = [
+                    'team1' => $team1,
+                    'team2' => $team2,
+                    'court' => $court,
+                    'time' => $courtSchedule[$court][$timeSlotIndex]
+                ];
             }
-        }
 
-        shuffle($matchups);
-
-        // First pass: schedule the matchups
-        foreach ($matchups as $matchup) {
-            list($team1, $team2) = $matchup;
-            $scheduled = false;
-
-            // Try to schedule the match on a suitable date
-            for ($date = 0; $date < $dates; $date++) {
-                if ($teamGamesPerDate[$team1][$date] < 3 && $teamGamesPerDate[$team2][$date] < 3 &&
-                    $this->countGamesOnDate($fixtures, $date) < $gamesPerDate[$date]) {
-                    $fixtures[$date][] = [
-                        'team1' => $team1,
-                        'team2' => $team2,
-                        'court' => ($this->countGamesOnDate($fixtures, $date) % $courts) + 1,
-                        'time' => $timeSlots[floor($this->countGamesOnDate($fixtures, $date) / $courts) % count($timeSlots)]
-                    ];
-                    $teamGamesPerDate[$team1][$date]++;
-                    $teamGamesPerDate[$team2][$date]++;
-                    $scheduled = true;
-                    break;
-                }
-            }
-            if (!$scheduled) {
-                // Log unscheduled games, possibly implement more sophisticated rescheduling logic
-            }
-        }
-
-        // Second pass: Ensure each team plays at least 2 games per date
-        for ($date = 0; $date < $dates; $date++) {
-            foreach ($teams as $team) {
-                while ($teamGamesPerDate[$team][$date] < 2) {
-                    // Attempt to find a new opponent and schedule a game
-                    $foundMatch = false;
-                    foreach ($teams as $opponent) {
-                        if ($team != $opponent && $teamGamesPerDate[$opponent][$date] < 3 && $teamGamesPerDate[$team][$date] < 3) {
-                            $alreadyPlayed = false;
-                            foreach ($fixtures[$date] as $game) {
-                                if (($game['team1'] == $team && $game['team2'] == $opponent) || ($game['team1'] == $opponent && $game['team2'] == $team)) {
-                                    $alreadyPlayed = true;
-                                    break;
-                                }
-                            }
-
-                            if (!$alreadyPlayed) {
-                                // Schedule this new match
-                                $fixtures[$date][] = [
-                                    'team1' => $team,
-                                    'team2' => $opponent,
-                                    'court' => ($this->countGamesOnDate($fixtures, $date) % $courts) + 1,
-                                    'time' => $timeSlots[floor($this->countGamesOnDate($fixtures, $date) / $courts) % count($timeSlots)]
-                                ];
-                                $teamGamesPerDate[$team][$date]++;
-                                $teamGamesPerDate[$opponent][$date]++;
-                                $foundMatch = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!$foundMatch) {
-                        break; // If no match found, log the issue
-                    }
-                }
-            }
-        }
-
-        // Ensure 3 games on exactly 2 dates for each team
-        foreach ($teamGamesPerDate as $team => $datesPlayed) {
-            $threeGameDates = array_keys(array_filter($datesPlayed, function ($games) {
-                return $games == 3;
-            }));
-
-            if (count($threeGameDates) < 2) {
-                $datesToAddGames = array_keys(array_filter($datesPlayed, function ($games) {
-                    return $games < 3;
-                }));
-
-                shuffle($datesToAddGames);
-
-                while (count($threeGameDates) < 2 && count($datesToAddGames) > 0) {
-                    $date = array_pop($datesToAddGames);
-                    $teamGamesPerDate[$team][$date] = 3;
-                    $threeGameDates[] = $date;
-
-                    foreach ($fixtures[$date] as &$game) {
-                        if ($game['team1'] == $team || $game['team2'] == $team) {
-                            $game['time'] = $timeSlots[count($fixtures[$date]) % count($timeSlots)];
-                            break;
-                        }
-                    }
-                }
-            }
+            // Rotate teams for the next day to change the team matchups
+            array_push($teams, array_shift($teams));
         }
 
         return $fixtures;
-    }
-    // example
-
-    private function countGamesOnDate($fixtures, $date)
-    {
-        return isset($fixtures[$date]) ? count($fixtures[$date]) : 0;
     }
 }
