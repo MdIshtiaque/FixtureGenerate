@@ -138,6 +138,7 @@ class GenerateFixtures extends Command
 
         return $fixtures;
     }
+    // example
 
     private function countGamesOnDate($fixtures, $date)
     {
